@@ -1,0 +1,235 @@
+---
+title: "Health and economic impacts of climate events in the U.S."
+subtitle: "Exploring NOAA Storm Database"
+author: "Ana Cortazzo"
+date: "`r Sys.Date()`"
+output: html_document
+---
+## Synopsis
+
+This report presents the results obtained from the analysis of the U.S. National Oceanic and Atmospheric Administration (NOAA) storm database. Events in the database begin in the year 1950 and end in November 2011. The objective of the analysis is to answer two questions:
+
+1. Across the United States, which types of events are most harmful with respect to population health?
+
+2. Across the United States, which types of events have the greatest economic consequences?
+
+In order to perform the analysis, a data processing was carried out, selecting those variables relevant to the study, and exploratory graphs were made to give us a clearer picture of the gravity of the climatic events for both health and the economy. 
+
+The results show that tornadoes are the most damaging climatic events for the health of the population, while floods cause the greatest economic damage.
+
+
+## Data Processing
+
+This project worked with the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database. The raw data can be [accessed here](https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2). The codebook an FAQ can be download from: 
+
+- [National Weather Service Storm Data Documentation](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf)
+
+- [National Climatic Data Center Storm Events FAQ](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2FNCDC%20Storm%20Events-FAQ%20Page.pdf)
+
+```{r download_data, eval=FALSE, message=FALSE, warning=FALSE, include=FALSE, cache=TRUE}
+# load packages
+library(data.table)
+library(R.utils)
+
+# download data
+fileURL <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+pathDIR <- getwd()
+setwd(pathDIR)
+if(!file.exists("data")){
+    dir.create("data") }
+download.file(fileURL, file.path(pathDIR, "./data/datafiles.csv.bz2") , method="libcurl")
+```
+
+### Loading data
+
+After downloading the database, it was loaded into Rstudio as follows:
+
+```{r load_data, message=FALSE, warning=FALSE, cache=TRUE}
+# load packages
+library(data.table)
+library(R.utils)
+#load data 
+storm_data <- fread("./data/datafiles.csv.bz2", sep = ",")
+```
+
+### Analyzing data
+
+The first step is to know the basic characteristics of the database. In this case we use the `str()` command for this purpose. 
+
+```{r cache=TRUE}
+str(storm_data)
+```
+
+For this analysis we are interested in the type of event (`EVTYPE`), fatalities and injuries (`FATALITIES`and `INJURIES`), damage to property (`PROPDMG` and `PROPDMGEXP`) and crops (`CROPDMG` and `CROPDMGEXP`).
+
+```{r message=FALSE, warning=FALSE, cache=TRUE} 
+#exploring EVTYPE
+str(table(storm_data$EVTYPE))
+
+#exploring FATALITIES and INJURIES
+summary(storm_data$FATALITIES)
+summary(storm_data$INJURIES)
+
+#exploring PROPDMG and PROPDMGEXP
+summary(storm_data$PROPDMG)
+unique(storm_data$PROPDMGEXP)
+
+#exploring CROPDMG and CROPDMGEXP
+summary(storm_data$CROPDMG)
+unique(storm_data$CROPDMGEXP)
+
+```
+
+
+### Data for population health
+
+In order to study the most dangerous events for the health of the population, fatalities and injuries are considered. In the first place, the events with the highest total number of victims are determined (combining fatalities plus injuries).
+
+```{r data for first plot, message=FALSE, warning=FALSE, cache=TRUE}
+library(dplyr)
+
+victims_event <- storm_data  %>% mutate(total_victims = FATALITIES + INJURIES) %>% 
+    group_by(EVTYPE) %>% summarize(victims = sum(total_victims), 
+                                   total_fatalities = sum(FATALITIES), 
+                                   total_injuries = sum(INJURIES)) %>% 
+    filter(victims != 0)
+
+summary(victims_event)
+```
+
+Secondly, data on fatalities and injuries are analyzed separately in order to compare the events. For this purpose, the table was melted to facilitate the plot. Only events with more than 1000 fatalities or injuries are considered, in order to simplify the plot.
+
+```{r data for second plot , cache=TRUE}
+library(reshape2)
+
+fatal_injurie_event <- victims_event %>% 
+    filter(total_fatalities >= 1000 | total_injuries >= 1000) %>% 
+    arrange(desc(total_fatalities)) 
+
+fatal_injurie_event <- melt(fatal_injurie_event, id.vars = c("EVTYPE"), measure.vars = c("total_fatalities", "total_injuries"), variable.name = "Type", variable.factor = TRUE)
+
+```
+
+### Data for economic damage
+
+Variables analyzed are as follows:
+
+ - `PROPDMG`: Property damage estimates rounded to three significant digits (in dolars)
+ 
+ - `CROPDMG`: Crop damage estimates rounded to three significant digits (in dolars)
+ 
+ - `PROPDMGEXP` and `CROPDMGEXP`: Alphabetical characters used to signify magnitude include “K” for thousands, “M” for millions, and “B” for billions. 
+ 
+For exponent data cleaning it is assumed that:
+
+- numbers indicate the corresponding exponent
+
+- the "h" or "H" indicates *hecto*, i.e. $10^2$
+
+- any other character is set to 1
+
+```{r clean exp, cache=TRUE}
+
+economic_damage <- storm_data %>% select(EVTYPE, PROPDMG, PROPDMGEXP, CROPDMG, CROPDMGEXP) %>%
+    filter(PROPDMG >0 | CROPDMG >0 )
+
+economic_damage <- economic_damage %>% mutate(PROPDMGEXP = case_when(
+                                                  PROPDMGEXP %in% "K" ~ 10^3, 
+                                                  PROPDMGEXP %in% "M" ~ 10^6,
+                                                  PROPDMGEXP %in% "B" ~ 10^9,
+                                                  PROPDMGEXP %in% "m" ~ 10^6, 
+                                                  PROPDMGEXP %in% "5" ~ 10^5, 
+                                                  PROPDMGEXP %in% "6" ~ 10^6, 
+                                                  PROPDMGEXP %in% "4" ~ 10^4, 
+                                                  PROPDMGEXP %in% "2" ~ 10^2, 
+                                                  PROPDMGEXP %in% "7" ~ 10^7, 
+                                                  PROPDMGEXP %in% "3" ~ 10^3, 
+                                                  PROPDMGEXP %in% "h" ~ 10^2,
+                                                  PROPDMGEXP %in% "H" ~ 10^2, 
+                                                  TRUE ~ as.numeric(1)),
+                                              CROPDMGEXP = case_when(
+                                                  CROPDMGEXP %in% "K" ~ 10^3, 
+                                                  CROPDMGEXP %in% "k" ~ 10^3,
+                                                  CROPDMGEXP %in% "M" ~ 10^6,
+                                                  CROPDMGEXP %in% "m" ~ 10^6,
+                                                  CROPDMGEXP %in% "B" ~ 10^9,
+                                                  TRUE ~ as.numeric(1)))
+economic_damage <- economic_damage %>% mutate(prop_value = PROPDMG*PROPDMGEXP, 
+                                              crop_value = CROPDMG*CROPDMGEXP, 
+                                              total_value = prop_value + crop_value) 
+head(economic_damage)
+```
+
+
+## Results
+
+This section presents the results obtained from the analysis of the database. In order to answer the initial questions, it is separated into two sections.
+
+### Events most harmful to the population health
+
+The following graph shows the events with the highest number of victims (considering fatalities and injuries) in the United States. In order to simplify the information presented in the chart, only those events with more than 1000 victims are considered. 
+
+```{r first plot, cache=TRUE}
+library(ggplot2)
+library(forcats)
+
+victims_event <- victims_event %>% filter(victims >= 1000) %>% arrange(desc(victims)) 
+
+ggplot(data = victims_event, aes(x = reorder(EVTYPE, victims, sum), y = victims, 
+                          fill = EVTYPE)) + geom_bar(stat = "identity") +
+  coord_flip() + theme(legend.position="none") +
+    labs(title = "The most harmful weather events for population in the US", 
+         y = "Total number of victims", x = "Event type")
+
+```
+The following graph shows the total number of fatalities and injuries for each event separately.
+
+```{r second plot , cache=TRUE}
+
+ggplot(data = fatal_injurie_event, aes(x = reorder(EVTYPE, value, sum),  y = value, fill = Type)) +
+    geom_bar(stat = "identity", position = position_dodge()) +
+  coord_flip() + labs(title = "Events with most injuries and fatalities", 
+         y = "Total number", x = "Event type") 
+
+```
+
+### Events with the greatest economic consequences
+
+In order to simplify the graphs, the events with the highest economic damages are considered. The following figure shows a comparison of the events with the greatest total economic damage (adding property and crop damage) and those with the greatest property versus crop damage.
+
+```{r third plot, cache=TRUE}
+#filter values
+tot_damage <- filter(economic_damage, total_value > 2000000000)
+prop_crop_filter <- filter(economic_damage, prop_value > 3000000000 | crop_value > 450000000)
+
+#melted data
+economic_melted <- melt(prop_crop_filter, id.vars = c("EVTYPE"), measure.vars = c("prop_value", "crop_value"), variable.name = "Type", variable.factor = TRUE) 
+
+#ploting
+p3 <- ggplot(data = economic_melted, aes(x= reorder(EVTYPE, value, sum), y = value, fill = EVTYPE)) +
+    geom_bar(stat = "identity") + facet_wrap(~ Type, nrow = 1) +
+  coord_flip() + theme(legend.position="none", axis.text.y = element_text(size = 8),
+                       axis.text.x = element_text(size = 8)) +
+    labs(title = "Economic damage - Property vs Crop", 
+         y = "Dolars", x = "Event type")
+
+
+p4 <- ggplot(data = tot_damage, aes(x = reorder(EVTYPE, total_value, sum),  y = total_value, fill = EVTYPE)) +
+    geom_bar(stat = "identity") +
+  coord_flip() + labs(title = "Economic damage - Total", 
+         y = "Dolars", x = "Event type") + 
+    theme(legend.position="none", axis.text.y = element_text(size = 8)) 
+
+library(gridExtra)
+grid.arrange(p3, p4, ncol = 1)
+
+```
+
+
+## Final considerations
+
+
+If we consider those weather events with the greatest damage to the health of the population, it is clear that tornadoes are the most dangerous, with the highest number of deaths and casualties. 
+
+
+On the other hand, if we look at total material damage, both to property and crops, floods are the most damaging. 
